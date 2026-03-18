@@ -1,3 +1,5 @@
 yarn run v1.22.22
 $ node server/index.js
 CitationGecko server listening on...8000
+error Command failed with exit code 1.
+info Visit https://yarnpkg.com/en/docs/cli/run for documentation about this command.

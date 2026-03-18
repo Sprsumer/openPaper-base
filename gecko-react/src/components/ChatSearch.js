@@ -1,5 +1,10 @@
 import React, { useState } from 'react';
 
+const getErrorMessage = (err, fallback) => {
+  if (err && err.message) return err.message;
+  return fallback;
+};
+
 const ChatSearch = ({ onAddPaper }) => {
   const [messages, setMessages] = useState([
     {
@@ -20,19 +25,21 @@ const ChatSearch = ({ onAddPaper }) => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      const searchRes = await fetch(
-        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
-          query
-        )}&limit=5&fields=paperId,title,authors,year,doi,externalIds`
-      );
+      const searchRes = await fetch(`/api/semantic/search?q=${encodeURIComponent(query)}`);
+      const searchPayload = await searchRes.json();
 
-      if (!searchRes.ok) {
-        throw new Error(`搜索失败（${searchRes.status}）`);
+      if (!searchRes.ok || !searchPayload.success) {
+        throw new Error(searchPayload.message || `搜索接口异常（${searchRes.status}）`);
       }
 
-      const searchData = await searchRes.json();
-      const topPaper = searchData && searchData.data ? searchData.data[0] : null;
-      if (!topPaper) throw new Error('未找到匹配论文');
+      const topPaper =
+        searchPayload && searchPayload.data && searchPayload.data.data
+          ? searchPayload.data.data[0]
+          : null;
+
+      if (!topPaper) {
+        throw new Error('没有找到匹配论文，请尝试更具体的关键词或 DOI');
+      }
 
       const paper = {
         paperId: topPaper.paperId,
@@ -46,15 +53,18 @@ const ChatSearch = ({ onAddPaper }) => {
       };
 
       const recRes = await fetch(
-        `https://api.semanticscholar.org/recommendations/v1/papers/forpaper/${paper.paperId}?limit=15&fields=paperId,title,authors,year,doi,externalIds`
+        `/api/semantic/recommendations?paperId=${encodeURIComponent(paper.paperId)}`
       );
+      const recPayload = await recRes.json();
 
-      if (!recRes.ok) {
-        throw new Error(`推荐获取失败（${recRes.status}）`);
+      if (!recRes.ok || !recPayload.success) {
+        throw new Error(recPayload.message || `推荐接口异常（${recRes.status}）`);
       }
 
-      const recData = await recRes.json();
-      const similarPapers = recData.recommendedPapers || [];
+      const similarPapers =
+        recPayload && recPayload.data && recPayload.data.recommendedPapers
+          ? recPayload.data.recommendedPapers
+          : [];
 
       const fullGraphData = {
         seed: paper,
@@ -79,10 +89,11 @@ const ChatSearch = ({ onAddPaper }) => {
         onAddPaper(fullGraphData);
       }
     } catch (err) {
-      setMessages(prev => [
-        ...prev,
-        { role: 'assistant', content: `❌ 出错：${err.message}。请换个关键词试试。` }
-      ]);
+      const readableMessage = getErrorMessage(
+        err,
+        '搜索服务暂时不可用，请检查本地服务是否启动或稍后重试'
+      );
+      setMessages(prev => [...prev, { role: 'assistant', content: `❌ 出错：${readableMessage}` }]);
     }
 
     setLoading(false);
