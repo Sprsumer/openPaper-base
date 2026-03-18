@@ -1,0 +1,67 @@
+.left-panel {
+  position: relative;
+  overflow: hidden;
+  background-color: rgb(255, 255, 255);
+  width: 400px;
+  margin-right: 0;
+  flex-grow: 0;
+  flex-shrink: 0;
+  flex-direction: column;
+}
+
+.left-panel-header {
+  height: 10%;
+  padding-top: 6%;
+  padding-bottom: 1%;
+  padding-left: 10%;
+  padding-right: 2%;
+  box-sizing: border-box;
+}
+
+.left-panel-header > h1 {
+  font-size: 24px;
+  margin: 0;
+  margin-right: 10px;
+  display: inline;
+}
+
+.left-panel-body {
+  overflow: auto;
+  overflow-x: hidden;
+  flex: auto;
+  height: 75%;
+  box-sizing: border-box;
+}
+
+.left-panel-footer {
+  height: 15%;
+  bottom: 0px;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: absolute;
+  background: white;
+  flex-flow: column wrap;
+  box-sizing: border-box;
+}
+
+.left-panel-footer p {
+  margin: 0.5em;
+}
+
+.left-panel-footer-btn-group {
+  display: flex;
+}
+
+#more-button {
+  background: none;
+  width: 100%;
+  margin: 0;
+  text-align: center;
+}
+
+.settings {
+  float: right;
+  margin-right: 20px;
+}
