@@ -15,12 +15,33 @@ const ChatSearch = ({ onAddPaper }) => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [lastSubmit, setLastSubmit] = useState({ query: '', ts: 0 });
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    const query = input.trim();
 
+    if (!query || loading) return;
+
+    if (query.length < 2) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: '❌ 查询词至少需要 2 个字符。' }
+      ]);
+      return;
+    }
+
+    const now = Date.now();
+    if (lastSubmit.query === query && now - lastSubmit.ts < 3000) {
+      setMessages(prev => [
+        ...prev,
+        { role: 'assistant', content: '❌ 相同查询提交过于频繁，请 3 秒后再试。' }
+      ]);
+      return;
+    }
+
+    setLastSubmit({ query, ts: now });
     setLoading(true);
-    const query = input;
+
     const userMsg = { role: 'user', content: query };
     setMessages(prev => [...prev, userMsg]);
 
@@ -77,11 +98,19 @@ const ChatSearch = ({ onAddPaper }) => {
         }))
       };
 
+      let assistantMessage = `✅ 找到论文：${paper.title}\n已生成相似关系网（${similarPapers.length} 篇推荐论文）。点击中间图节点探索！`;
+      if (
+        (searchPayload.meta && searchPayload.meta.cacheHit) ||
+        (recPayload.meta && recPayload.meta.cacheHit)
+      ) {
+        assistantMessage += '\n⚡ 已展示缓存结果';
+      }
+
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: `✅ 找到论文：${paper.title}\n已生成相似关系网（${similarPapers.length} 篇推荐论文）。点击中间图节点探索！`
+          content: assistantMessage
         }
       ]);
 
@@ -132,15 +161,30 @@ const ChatSearch = ({ onAddPaper }) => {
         ))}
         {loading && <div>正在搜索并生成关系网...</div>}
       </div>
-      <div style={{ padding: '12px', borderTop: '1px solid #ddd' }}>
+      <div style={{ padding: '12px', borderTop: '1px solid #ddd', display: 'flex', gap: '8px' }}>
         <input
           value={input}
           onChange={e => setInput(e.target.value)}
           onKeyDown={e => e.key === 'Enter' && handleSend()}
           placeholder="关键词 / DOI / 标题 / 作者..."
           disabled={loading}
-          style={{ width: '100%', padding: '14px', borderRadius: '8px', border: '1px solid #ccc' }}
+          style={{ flex: 1, padding: '14px', borderRadius: '8px', border: '1px solid #ccc' }}
         />
+        <button
+          type="button"
+          onClick={handleSend}
+          disabled={loading}
+          style={{
+            padding: '0 16px',
+            borderRadius: '8px',
+            border: '1px solid #0d6efd',
+            background: loading ? '#b5d0ff' : '#0d6efd',
+            color: '#fff',
+            cursor: loading ? 'not-allowed' : 'pointer'
+          }}
+        >
+          发送
+        </button>
       </div>
     </div>
   );
