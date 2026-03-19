@@ -5,7 +5,7 @@ const ChatSearch = ({ onAddPaper }) => {
     {
       role: 'assistant',
       content:
-        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我帮你找论文并生成真实相似关系网～'
+        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我帮你找论文并生成真实相似关系网～（已复刻 Connected Papers 原版搜索）'
     }
   ]);
   const [input, setInput] = useState('');
@@ -18,45 +18,37 @@ const ChatSearch = ({ onAddPaper }) => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      // 1. 调用后端 proxy 搜索（稳定、无 CORS）
-      const searchRes = await fetch(`/api/openalex/search?q=${encodeURIComponent(input)}`);
+      // 1. 调用服务器已有 proxy（原 CitationGecko 稳定端点）
+      const searchRes = await fetch(
+        `/api/semantic/search?query=${encodeURIComponent(input)}&limit=3`
+      );
       if (!searchRes.ok) throw new Error('搜索失败');
       const searchData = await searchRes.json();
-      const topWork = searchData && searchData.results ? searchData.results[0] : null;
-      if (!topWork) throw new Error('未找到匹配论文');
+      const topPaper = searchData && searchData.data ? searchData.data[0] : null;
+      if (!topPaper) throw new Error('未找到匹配论文');
 
       const paper = {
-        paperId: topWork.id.replace('https://openalex.org/', ''),
-        title: topWork.title,
-        authors: topWork.authorships
-          ? topWork.authorships.map(a => (a.author ? a.author.display_name : null)).filter(Boolean)
-          : ['未知'],
-        year: topWork.year,
-        doi: topWork.doi || (topWork.ids ? topWork.ids.doi : null) || '无'
+        paperId: topPaper.paperId,
+        title: topPaper.title,
+        authors: topPaper.authors ? topPaper.authors.map(a => a.name) : ['未知'],
+        year: topPaper.year,
+        doi: topPaper.doi || '无'
       };
 
-      // 2. 调用后端 proxy 获取相关论文
-      const titleKeywords = paper.title
-        .split(' ')
-        .slice(0, 5)
-        .join(' ');
-      const relatedRes = await fetch(
-        `/api/openalex/related?keywords=${encodeURIComponent(titleKeywords)}`
-      );
-      if (!relatedRes.ok) throw new Error('相关论文搜索失败');
-      const relatedData = await relatedRes.json();
-      const relatedPapers = relatedData.results || [];
+      // 2. 调用服务器已有 recommendations（原 Connected Papers 核心）
+      const recRes = await fetch(`/api/semantic/recommendations?paperId=${paper.paperId}&limit=15`);
+      if (!recRes.ok) throw new Error('相关论文失败');
+      const recData = await recRes.json();
+      const relatedPapers = recData.recommendedPapers || [];
 
       const fullGraphData = {
         seed: paper,
         related: relatedPapers.map(p => ({
-          paperId: p.id.replace('https://openalex.org/', ''),
+          paperId: p.paperId,
           title: p.title,
-          authors: p.authorships
-            ? p.authorships.map(a => (a.author ? a.author.display_name : null)).filter(Boolean)
-            : [],
+          authors: p.authors ? p.authors.map(a => a.name) : [],
           year: p.year,
-          doi: p.doi || (p.ids ? p.ids.doi : null) || ''
+          doi: p.doi || ''
         }))
       };
 
@@ -74,7 +66,7 @@ const ChatSearch = ({ onAddPaper }) => {
         ...prev,
         {
           role: 'assistant',
-          content: `❌ 出错：${err.message}`
+          content: `❌ 出错：${err.message || '请稍后重试'}`
         }
       ]);
     }
