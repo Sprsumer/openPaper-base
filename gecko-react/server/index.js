@@ -76,5 +76,36 @@ app.get(
   require('./services/semantic/recommendations')
 );
 
+// === 新增 OpenAlex proxy（解决浏览器直连问题）===
+app.get('/api/openalex/search', semanticRateLimiter, async (req, res) => {
+  try {
+    const query = req.query.q || '';
+    const url = `https://api.openalex.org/works?search=${encodeURIComponent(
+      query
+    )}&per-page=3&select=id,title,authorships,year,doi,ids`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`OpenAlex 返回 ${response.status}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+app.get('/api/openalex/related', semanticRateLimiter, async (req, res) => {
+  try {
+    const titleKeywords = req.query.keywords || '';
+    const url = `https://api.openalex.org/works?search=${encodeURIComponent(
+      titleKeywords
+    )}&per-page=15&select=id,title,authorships,year,doi,ids&filter=publication_year:>2015`;
+    const response = await fetch(url);
+    if (!response.ok) throw new Error(`OpenAlex 返回 ${response.status}`);
+    const data = await response.json();
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 8000;
 app.listen(PORT, () => console.log(`CitationGecko server listening on...${PORT}`));

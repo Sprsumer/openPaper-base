@@ -18,11 +18,8 @@ const ChatSearch = ({ onAddPaper }) => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      // 1. OpenAlex 搜索论文（CORS 友好、无限流）
-      const searchUrl = `https://api.openalex.org/works?search=${encodeURIComponent(
-        input
-      )}&per-page=3&select=id,title,authorships,year,doi,ids`;
-      const searchRes = await fetch(searchUrl);
+      // 1. 调用后端 proxy 搜索（稳定、无 CORS）
+      const searchRes = await fetch(`/api/openalex/search?q=${encodeURIComponent(input)}`);
       if (!searchRes.ok) throw new Error('搜索失败');
       const searchData = await searchRes.json();
       const topWork = searchData && searchData.results ? searchData.results[0] : null;
@@ -38,16 +35,15 @@ const ChatSearch = ({ onAddPaper }) => {
         doi: topWork.doi || (topWork.ids ? topWork.ids.doi : null) || '无'
       };
 
-      // 2. 获取相似论文（用标题关键词二次搜索，效果接近 Connected Papers）
+      // 2. 调用后端 proxy 获取相关论文
       const titleKeywords = paper.title
         .split(' ')
         .slice(0, 5)
         .join(' ');
       const relatedRes = await fetch(
-        `https://api.openalex.org/works?search=${encodeURIComponent(
-          titleKeywords
-        )}&per-page=15&select=id,title,authorships,year,doi&filter=publication_year:>2015`
+        `/api/openalex/related?keywords=${encodeURIComponent(titleKeywords)}`
       );
+      if (!relatedRes.ok) throw new Error('相关论文搜索失败');
       const relatedData = await relatedRes.json();
       const relatedPapers = relatedData.results || [];
 
@@ -78,7 +74,7 @@ const ChatSearch = ({ onAddPaper }) => {
         ...prev,
         {
           role: 'assistant',
-          content: `❌ 出错：${err.message || '网络问题，请稍后重试'}`
+          content: `❌ 出错：${err.message}`
         }
       ]);
     }
