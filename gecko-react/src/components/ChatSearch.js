@@ -5,35 +5,11 @@ const ChatSearch = ({ onAddPaper }) => {
     {
       role: 'assistant',
       content:
-        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我帮你找论文并生成真实引用关系网～'
+        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我帮你找论文并生成真实相似关系网～'
     }
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
-
-  const fetchWithRetry = async (url, options = {}, retries = 2) => {
-    for (let i = 0; i <= retries; i++) {
-      try {
-        const res = await fetch(url, {
-          ...options,
-          headers: {
-            ...options.headers,
-            'User-Agent':
-              'openPaper/1.0<a href="https://github.com/Sprsumer/openPaper-base" target="_blank" rel="noopener noreferrer nofollow"></a>'
-          }
-        });
-        if (res.status === 429) {
-          await new Promise(resolve => setTimeout(resolve, 1200)); // 限流等待
-          continue;
-        }
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        return await res.json();
-      } catch (err) {
-        if (i === retries) throw err;
-        await new Promise(resolve => setTimeout(resolve, 800));
-      }
-    }
-  };
 
   const handleSend = async () => {
     if (!input.trim() || loading) return;
@@ -42,49 +18,49 @@ const ChatSearch = ({ onAddPaper }) => {
     setMessages(prev => [...prev, userMsg]);
 
     try {
-      // 1. 搜索论文（官方稳定端点）
-      const searchRes = await fetchWithRetry(
-        `https://api.semanticscholar.org/graph/v1/paper/search?query=${encodeURIComponent(
-          input
-        )}&limit=3&fields=paperId,title,authors,year,doi,externalIds`
-      );
-      const topPaper = searchRes && searchRes.data ? searchRes.data[0] : null;
-      if (!topPaper) throw new Error('未找到匹配论文');
+      // 1. OpenAlex 搜索论文（CORS 友好、无限流）
+      const searchUrl = `https://api.openalex.org/works?search=${encodeURIComponent(
+        input
+      )}&per-page=3&select=id,title,authorships,year,doi,ids`;
+      const searchRes = await fetch(searchUrl);
+      if (!searchRes.ok) throw new Error('搜索失败');
+      const searchData = await searchRes.json();
+      const topWork = searchData && searchData.results ? searchData.results[0] : null;
+      if (!topWork) throw new Error('未找到匹配论文');
 
       const paper = {
-        paperId: topPaper.paperId,
-        title: topPaper.title,
-        authors: topPaper.authors ? topPaper.authors.map(a => a.name) : ['未知'],
-        year: topPaper.year,
-        doi:
-          topPaper.externalIds && topPaper.externalIds.DOI
-            ? topPaper.externalIds.DOI
-            : topPaper.doi || '无'
+        paperId: topWork.id.replace('https://openalex.org/', ''),
+        title: topWork.title,
+        authors: topWork.authorships
+          ? topWork.authorships.map(a => (a.author ? a.author.display_name : null)).filter(Boolean)
+          : ['未知'],
+        year: topWork.year,
+        doi: topWork.doi || (topWork.ids ? topWork.ids.doi : null) || '无'
       };
 
-      // 2. 获取真实相关论文（citations + references，代替废弃的 recommendations）
-      const [citationsData, referencesData] = await Promise.all([
-        fetchWithRetry(
-          `https://api.semanticscholar.org/graph/v1/paper/${paper.paperId}/citations?limit=12&fields=paperId,title,authors,year,doi`
-        ),
-        fetchWithRetry(
-          `https://api.semanticscholar.org/graph/v1/paper/${paper.paperId}/references?limit=12&fields=paperId,title,authors,year,doi`
-        )
-      ]);
-
-      const relatedPapers = [
-        ...((citationsData && citationsData.data) || []),
-        ...((referencesData && referencesData.data) || [])
-      ].slice(0, 15);
+      // 2. 获取相似论文（用标题关键词二次搜索，效果接近 Connected Papers）
+      const titleKeywords = paper.title
+        .split(' ')
+        .slice(0, 5)
+        .join(' ');
+      const relatedRes = await fetch(
+        `https://api.openalex.org/works?search=${encodeURIComponent(
+          titleKeywords
+        )}&per-page=15&select=id,title,authorships,year,doi&filter=publication_year:>2015`
+      );
+      const relatedData = await relatedRes.json();
+      const relatedPapers = relatedData.results || [];
 
       const fullGraphData = {
         seed: paper,
         related: relatedPapers.map(p => ({
-          paperId: p.paperId,
+          paperId: p.id.replace('https://openalex.org/', ''),
           title: p.title,
-          authors: p.authors ? p.authors.map(a => a.name) : [],
+          authors: p.authorships
+            ? p.authorships.map(a => (a.author ? a.author.display_name : null)).filter(Boolean)
+            : [],
           year: p.year,
-          doi: p.externalIds && p.externalIds.DOI ? p.externalIds.DOI : p.doi || ''
+          doi: p.doi || (p.ids ? p.ids.doi : null) || ''
         }))
       };
 
@@ -92,7 +68,7 @@ const ChatSearch = ({ onAddPaper }) => {
         ...prev,
         {
           role: 'assistant',
-          content: `✅ 找到论文：${paper.title}\n已生成真实引用关系网（${relatedPapers.length} 篇相关论文）。点击中间图节点探索！`
+          content: `✅ 找到论文：${paper.title}\n已生成真实相似关系网（${relatedPapers.length} 篇）。点击中间图节点探索！`
         }
       ]);
 
@@ -102,7 +78,7 @@ const ChatSearch = ({ onAddPaper }) => {
         ...prev,
         {
           role: 'assistant',
-          content: `❌ 出错：${err.message || '服务暂时不可用，请稍后再试'}`
+          content: `❌ 出错：${err.message || '网络问题，请稍后重试'}`
         }
       ]);
     }
@@ -110,7 +86,6 @@ const ChatSearch = ({ onAddPaper }) => {
     setInput('');
   };
 
-  // UI 部分保持你原来的样式（头部、消息区、输入框）
   return (
     <div
       style={{
