@@ -29,13 +29,13 @@ function App() {
     if (!fullGraphData || !fullGraphData.seed) return;
 
     const seedPaper = mapSemanticPaper(fullGraphData.seed, true);
-    const similarPapers = (fullGraphData.similar || []).map(p => mapSemanticPaper(p, false));
+    const relatedPapers = (fullGraphData.related || []).map(p => mapSemanticPaper(p, false));
 
     store.updatePapers(
       [
         {
           ...seedPaper,
-          references: similarPapers
+          references: relatedPapers
         }
       ],
       true
