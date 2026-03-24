@@ -67,6 +67,8 @@ app.get('/services/zotero/getCollections', require('./services/zotero/getCollect
 app.get('/services/zotero/getItemsInCollection', require('./services/zotero/getItemsInCollection'));
 app.post('/services/zotero/addItems', require('./services/zotero/addItems'));
 
+app.use(require('./routes/search'));
+
 const semanticRateLimiter = createSemanticRateLimiter();
 
 app.get('/api/semantic/search', semanticRateLimiter, require('./services/semantic/search'));

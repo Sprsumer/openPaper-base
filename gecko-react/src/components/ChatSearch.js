@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { searchPapers } from '../api/paperSearch';
 
 const ChatSearch = ({ onAddPaper }) => {
   const [messages, setMessages] = useState([
@@ -12,53 +13,79 @@ const ChatSearch = ({ onAddPaper }) => {
   const [loading, setLoading] = useState(false);
 
   const handleSend = async () => {
-    if (!input.trim() || loading) return;
+    if (loading) return;
+
+    const keyword = input.trim();
+
+    if (!keyword) {
+      setMessages(prev => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: '❌ 出错：请输入搜索关键词'
+        }
+      ]);
+      setInput('');
+      return;
+    }
+
     setLoading(true);
-    const userMsg = { role: 'user', content: input };
-    setMessages(prev => [...prev, userMsg]);
+    setMessages(prev => [...prev, { role: 'user', content: keyword }]);
+    setInput('');
 
     try {
-      // 1. 调用服务器已有 proxy（原 CitationGecko 稳定端点）
-      const searchRes = await fetch(`/api/openalex/search?q=${encodeURIComponent(input)}`);
-      if (!searchRes.ok) throw new Error('搜索失败');
-      const searchData = await searchRes.json();
-      const topPaper = searchData && searchData.data ? searchData.data[0] : null;
-      if (!topPaper) throw new Error('未找到匹配论文');
+      const result = await searchPapers(keyword);
 
-      const paper = {
-        paperId: topPaper.paperId,
-        title: topPaper.title,
-        authors: topPaper.authors ? topPaper.authors.map(a => a.name) : ['未知'],
-        year: topPaper.year,
-        doi: topPaper.doi || '无'
-      };
+      if (!result.success) {
+        throw new Error(result.message || '搜索失败');
+      }
 
-      // 2. 调用服务器已有 recommendations（原 Connected Papers 核心）
-      const recRes = await fetch(`/api/semantic/recommendations?paperId=${paper.paperId}&limit=15`);
-      if (!recRes.ok) throw new Error('相关论文失败');
-      const recData = await recRes.json();
-      const relatedPapers = recData.recommendedPapers || [];
+      const papers = result.data || [];
 
-      const fullGraphData = {
-        seed: paper,
-        related: relatedPapers.map(p => ({
-          paperId: p.paperId,
-          title: p.title,
-          authors: p.authors ? p.authors.map(a => a.name) : [],
-          year: p.year,
-          doi: p.doi || ''
+      if (!papers.length) {
+        setMessages(prev => [
+          ...prev,
+          {
+            role: 'assistant',
+            content: '未找到相关文献，请尝试更换关键词。'
+          }
+        ]);
+        return;
+      }
+
+      const seed = papers[0];
+      const graphData = {
+        seed: {
+          paperId: String(seed.id),
+          title: seed.title,
+          authors: seed.authors || [],
+          year: seed.year,
+          doi: seed.doi || ''
+        },
+        related: papers.slice(1).map(item => ({
+          paperId: String(item.id),
+          title: item.title,
+          authors: item.authors || [],
+          year: item.year,
+          doi: item.doi || ''
         }))
       };
+
+      const content = `找到${papers.length}篇相关文献：\n${papers
+        .map(item => `- ${item.title}（${(item.authors || []).join(', ')}）`)
+        .join('\n')}`;
 
       setMessages(prev => [
         ...prev,
         {
           role: 'assistant',
-          content: `✅ 找到论文：${paper.title}\n已生成真实相似关系网（${relatedPapers.length} 篇）。点击中间图节点探索！`
+          content
         }
       ]);
 
-      onAddPaper(fullGraphData);
+      if (onAddPaper) {
+        onAddPaper(graphData);
+      }
     } catch (err) {
       setMessages(prev => [
         ...prev,
@@ -67,9 +94,9 @@ const ChatSearch = ({ onAddPaper }) => {
           content: `❌ 出错：${err.message || '请稍后重试'}`
         }
       ]);
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-    setInput('');
   };
 
   return (
