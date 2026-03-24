@@ -19,9 +19,7 @@ const ChatSearch = ({ onAddPaper }) => {
 
     try {
       // 1. 调用服务器已有 proxy（原 CitationGecko 稳定端点）
-      const searchRes = await fetch(
-        `/api/semantic/search?query=${encodeURIComponent(input)}&limit=3`
-      );
+      const searchRes = await fetch(`/api/openalex/search?q=${encodeURIComponent(input)}`);
       if (!searchRes.ok) throw new Error('搜索失败');
       const searchData = await searchRes.json();
       const topPaper = searchData && searchData.data ? searchData.data[0] : null;

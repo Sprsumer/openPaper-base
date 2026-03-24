@@ -76,19 +76,27 @@ app.get(
   require('./services/semantic/recommendations')
 );
 
-// === 新增 OpenAlex proxy（解决浏览器直连问题）===
+// === OpenAlex search proxy（彻底解决 Semantic Scholar search 不稳定问题）===
 app.get('/api/openalex/search', semanticRateLimiter, async (req, res) => {
   try {
-    const query = req.query.q || '';
-    const url = `https://api.openalex.org/works?search=${encodeURIComponent(
-      query
-    )}&per-page=3&select=id,title,authorships,year,doi,ids`;
+    const q = req.query.q || '';
+    const url = `https://api.openalex.org/works?search=${encodeURIComponent(q)}&per-page=3&select=id,title,authorships,year,doi,ids`;
     const response = await fetch(url);
     if (!response.ok) throw new Error(`OpenAlex 返回 ${response.status}`);
     const data = await response.json();
-    res.json(data);
+    // 转成 Semantic Scholar 兼容格式，让 ChatSearch 无需改动
+    const formatted = {
+      data: data.results?.map(w => ({
+        paperId: w.id.replace('https://openalex.org/', ''),
+        title: w.title,
+        authors: w.authorships?.map(a => ({ name: a.author?.display_name })) || [],
+        year: w.year,
+        doi: w.doi || w.ids?.doi || ''
+      })) || []
+    };
+    res.json(formatted);
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    res.status(500).json({ success: false, message: '搜索失败' });
   }
 });
 
