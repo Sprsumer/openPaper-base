@@ -191,14 +191,15 @@ function rankSearchResults(results, keyword) {
 
 async function fetchJson(url, options = {}) {
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const hasAbortController = typeof AbortController !== 'undefined';
+  const controller = hasAbortController ? new AbortController() : null;
+  const timer = hasAbortController ? setTimeout(() => controller.abort(), timeoutMs) : null;
 
   try {
     const response = await fetch(url, {
       method: 'GET',
       headers: options.headers || {},
-      signal: controller.signal
+      ...(controller ? { signal: controller.signal } : {})
     });
 
     if (!response.ok) {
