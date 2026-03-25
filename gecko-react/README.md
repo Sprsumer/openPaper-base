@@ -32,6 +32,59 @@ The tool allows the user to view these highly connected papers either in a table
 7. Run `yarn run start` to launch the server.
 8. The application will be served to http://localhost:8000
 
+## Real search endpoint (/api/search)
+
+`/api/search` now uses real providers instead of mock data.
+
+- Default provider: `OpenAlex` (`SEARCH_PROVIDER=openalex`)
+- Optional provider: `Semantic Scholar` (`SEARCH_PROVIDER=semantic`)
+- Hybrid mode: `SEARCH_PROVIDER=hybrid` (merge semantic + openalex with dedupe and ranking)
+
+### Response format
+
+The endpoint keeps front-end compatible format:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "openalex:W123",
+      "title": "Paper title",
+      "authors": ["A", "B"],
+      "year": 2023,
+      "doi": "10.xxxx/xxxx",
+      "journal": "Nature",
+      "source": "openalex"
+    }
+  ]
+}
+```
+
+### Environment variables
+
+Add in `.env`:
+
+```bash
+SEARCH_PROVIDER=openalex
+SEARCH_RESULT_LIMIT=8
+SEARCH_TIMEOUT_MS=10000
+SEMANTIC_SCHOLAR_API_KEY=
+```
+
+Notes:
+
+- If no Semantic key is configured, `openalex` mode works directly.
+- In `semantic` mode, semantic failure will fallback to OpenAlex.
+- In `hybrid` mode, service tries both sources and dedupes by DOI / id / normalized title.
+
+### Local API test
+
+After starting server (`yarn start`), test via:
+
+- Keyword search: `http://localhost:8000/api/search?keyword=graph%20neural%20network`
+- DOI search: `http://localhost:8000/api/search?keyword=10.1038/s41586-020-2649-2`
+
 ## Instructions for use
 
 1. Go to [citationgecko.com](http://citationgecko.com) or [localhost:8000](http://localhost:8000) if you're running application locally
