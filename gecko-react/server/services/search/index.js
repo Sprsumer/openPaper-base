@@ -227,10 +227,7 @@ async function searchOpenAlex(keyword, options = {}) {
   const params = new URLSearchParams();
 
   params.set('per-page', String(limit));
-  params.set(
-    'select',
-    'id,title,authorships,publication_year,year,doi,ids,primary_location,host_venue,cited_by_count'
-  );
+  params.set('select', 'id,title,authorships,publication_year,doi,ids,primary_location,cited_by_count');
 
   if (isDoiQuery(keyword)) {
     params.set('filter', `doi:${normalizeDoi(keyword)}`);

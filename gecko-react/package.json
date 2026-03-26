@@ -63,7 +63,8 @@
     "start": "node server/index.js",
     "start-dev": "node scripts/start.js",
     "build": "node scripts/build.js",
-    "test": "node scripts/test.js --env=jsdom"
+    "test": "node scripts/test.js --env=jsdom",
+    "test:server": "node scripts/test.js --env=jsdom --runInBand server"
   },
   "jest": {
     "collectCoverageFrom": [
@@ -74,7 +75,9 @@
     ],
     "testMatch": [
       "<rootDir>/src/**/__tests__/**/*.{js,jsx,mjs}",
-      "<rootDir>/src/**/?(*.)(spec|test).{js,jsx,mjs}"
+      "<rootDir>/src/**/?(*.)(spec|test).{js,jsx,mjs}",
+      "<rootDir>/server/**/__tests__/**/*.{js,jsx,mjs}",
+      "<rootDir>/server/**/?(*.)(spec|test).{js,jsx,mjs}"
     ],
     "testEnvironment": "node",
     "testURL": "http://localhost",
