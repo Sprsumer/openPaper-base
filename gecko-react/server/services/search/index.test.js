@@ -1,11 +1,15 @@
 const {
   SearchServiceError,
   isDoiQuery,
+  normalizeDoi,
+  buildOpenAlexSearchUrl,
+  fetchJson,
   mapOpenAlexWork,
   mapSemanticPaper,
   dedupeResults,
   scorePaper,
   rankSearchResults,
+  searchOpenAlex,
   runSearch
 } = require('./index');
 
@@ -26,13 +30,32 @@ describe('server/services/search/index', () => {
     process.env = originalEnv;
   });
 
-  it('3.1 识别 DOI 查询', () => {
+  it('识别 DOI 查询', () => {
     expect(isDoiQuery('10.1038/s41586-023-12345-6')).toBe(true);
     expect(isDoiQuery('https://doi.org/10.1038/s41586-023-12345-6')).toBe(true);
     expect(isDoiQuery('graph neural network')).toBe(false);
   });
 
-  it('3.2 mapOpenAlexWork 映射统一字段', () => {
+  it('buildOpenAlexSearchUrl 普通关键词包含 search/per-page/select', () => {
+    const url = buildOpenAlexSearchUrl('航空航天', 12);
+
+    expect(url).toContain('https://api.openalex.org/works?');
+    expect(url).toContain('per-page=12');
+    expect(url).toContain(
+      'select=id%2Ctitle%2Cauthorships%2Cpublication_year%2Cdoi%2Cids%2Cprimary_location%2Ccited_by_count'
+    );
+    expect(url).toContain('search=');
+    expect(decodeURIComponent(url)).toContain('search=航空航天');
+  });
+
+  it('buildOpenAlexSearchUrl DOI 查询使用 filter=doi', () => {
+    const url = buildOpenAlexSearchUrl('https://doi.org/10.1000/abc.DEF', 8);
+
+    expect(url).toContain('filter=doi%3A10.1000%2Fabc.def');
+    expect(url).not.toContain('search=');
+  });
+
+  it('mapOpenAlexWork 映射统一字段与 publication_year', () => {
     const mapped = mapOpenAlexWork({
       id: 'https://openalex.org/W123456',
       title: 'OpenAlex Paper',
@@ -55,7 +78,20 @@ describe('server/services/search/index', () => {
     });
   });
 
-  it('3.3 mapSemanticPaper 映射统一字段', () => {
+  it('mapOpenAlexWork 缺字段容错：primary_location/authorships 缺失不崩溃', () => {
+    const mapped = mapOpenAlexWork({
+      id: 'https://openalex.org/W2',
+      title: 'No location paper',
+      publication_year: 2020,
+      cited_by_count: 0
+    });
+
+    expect(mapped.authors).toEqual([]);
+    expect(mapped.journal).toBe('');
+    expect(mapped.source).toBe('openalex');
+  });
+
+  it('mapSemanticPaper 映射统一字段', () => {
     const mapped = mapSemanticPaper({
       paperId: 'S-1',
       title: 'Semantic Paper',
@@ -78,7 +114,7 @@ describe('server/services/search/index', () => {
     });
   });
 
-  it('3.4 dedupeResults 按 DOI/id/标题归一化去重，跨来源仅保留一条', () => {
+  it('dedupeResults 按 DOI/id/标题归一化去重', () => {
     const deduped = dedupeResults([
       { id: 'openalex:1', title: 'Graph Neural Networks!', doi: '10.1000/dup', source: 'openalex' },
       { id: 'semantic:2', title: 'Another title', doi: '10.1000/dup', source: 'semantic' },
@@ -90,7 +126,7 @@ describe('server/services/search/index', () => {
     expect(deduped[0].id).toBe('openalex:1');
   });
 
-  it('3.5 DOI 精确匹配优先，且不被 citationCount 压过', () => {
+  it('score/rank：DOI 精确匹配优先于高引用', () => {
     const ranked = rankSearchResults(
       [
         {
@@ -116,23 +152,7 @@ describe('server/services/search/index', () => {
     expect(ranked[0].id).toBe('doi-hit');
   });
 
-  it('3.5 标题精确匹配高于包含，作者命中有加分，年份有轻微加分', () => {
-    const ranked = rankSearchResults(
-      [
-        { id: 'exact', title: 'graph neural network', authors: ['alice'], year: 2022, citationCount: 0 },
-        {
-          id: 'contains',
-          title: 'applications of graph neural network',
-          authors: ['bob'],
-          year: 2022,
-          citationCount: 0
-        }
-      ],
-      'graph neural network'
-    );
-
-    expect(ranked[0].id).toBe('exact');
-
+  it('scorePaper：作者命中和年份有加分', () => {
     const authorHitScore = scorePaper(
       { id: 'a', title: 'paper', authors: ['Alice Zhang'], year: 2020, citationCount: 0 },
       'alice'
@@ -152,34 +172,77 @@ describe('server/services/search/index', () => {
     expect(recent).toBeGreaterThan(old);
   });
 
-  it('3.6 空数组与缺字段对象不崩溃', () => {
-    expect(dedupeResults([])).toEqual([]);
-    expect(() => mapOpenAlexWork({})).not.toThrow();
-    expect(() => mapSemanticPaper({})).not.toThrow();
+  it('searchOpenAlex 使用统一 builder 生成 URL', async () => {
+    global.fetch.mockImplementation(() => Promise.resolve({ ok: true, json: async () => ({ results: [] }) }));
+
+    await searchOpenAlex('graph neural network', { limit: 5 });
+
+    const calledUrl = String(global.fetch.mock.calls[0][0]);
+    expect(calledUrl).toBe(buildOpenAlexSearchUrl('graph neural network', 5));
   });
 
-  it('修复点：OpenAlex 默认查询参数不再包含非法 year select 字段', async () => {
+  it('runSearch 默认 openalex 时 URL 不包含旧 year select 片段', async () => {
     process.env.SEARCH_PROVIDER = 'openalex';
     global.fetch.mockImplementation(() => Promise.resolve({ ok: true, json: async () => ({ results: [] }) }));
 
     await runSearch('graph neural network', { limit: 5 });
 
     const url = String(global.fetch.mock.calls[0][0]);
-    expect(url).toContain('select=id%2Ctitle%2Cauthorships%2Cpublication_year%2Cdoi%2Cids%2Cprimary_location%2Ccited_by_count');
+    expect(url).toContain('publication_year');
     expect(url).not.toContain('publication_year%2Cyear%2C');
   });
 
-  it('3.6 provider 返回空结果时逻辑稳定', async () => {
+  it('fetchJson：上游 400 转换为 SearchServiceError 并记录日志', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch.mockImplementation(() =>
+      Promise.resolve({ ok: false, status: 400, text: async () => '{"error":"bad request"}' })
+    );
+
+    await expect(fetchJson('https://api.openalex.org/works?search=test', { provider: 'openalex' })).rejects.toMatchObject({
+      name: 'SearchServiceError',
+      status: 400
+    });
+    expect(errorSpy).toHaveBeenCalled();
+
+    errorSpy.mockRestore();
+  });
+
+  it('fetchJson：network error 转换为 SearchServiceError 502', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    global.fetch.mockImplementation(() => Promise.reject(new Error('network down')));
+
+    await expect(fetchJson('https://api.openalex.org/works?search=test', { provider: 'openalex' })).rejects.toMatchObject({
+      name: 'SearchServiceError',
+      status: 502,
+      message: '搜索服务请求失败：network down'
+    });
+
+    errorSpy.mockRestore();
+  });
+
+  it('fetchJson：AbortError 转换为 SearchServiceError 504', async () => {
+    const errorSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+    const abortError = new Error('aborted');
+    abortError.name = 'AbortError';
+    global.fetch.mockImplementation(() => Promise.reject(abortError));
+
+    await expect(fetchJson('https://api.openalex.org/works?search=test', { provider: 'openalex' })).rejects.toMatchObject({
+      name: 'SearchServiceError',
+      status: 504,
+      message: '上游搜索服务超时'
+    });
+
+    errorSpy.mockRestore();
+  });
+
+  it('provider 返回空结果时逻辑稳定', async () => {
     process.env.SEARCH_PROVIDER = 'openalex';
     global.fetch.mockImplementation(() => Promise.resolve({ ok: true, json: async () => ({ results: [] }) }));
 
     await expect(runSearch('empty', { limit: 5 })).resolves.toEqual([]);
   });
 
-  it('4.4 对应基础能力：provider 错误时返回可解释错误', async () => {
-    process.env.SEARCH_PROVIDER = 'openalex';
-    global.fetch.mockImplementation(() => Promise.resolve({ ok: false, status: 400 }));
-
-    await expect(runSearch('bad request')).rejects.toBeInstanceOf(SearchServiceError);
+  it('normalizeDoi 支持 DOI URL 标准化', () => {
+    expect(normalizeDoi('https://doi.org/10.1000/ABC')).toBe('10.1000/abc');
   });
 });

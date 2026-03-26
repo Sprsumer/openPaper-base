@@ -46,6 +46,25 @@ function parseOpenAlexId(idUrl) {
   return matched ? matched[1] : raw;
 }
 
+function buildOpenAlexSearchUrl(keyword, limit = DEFAULT_LIMIT) {
+  const normalizedLimit = normalizeLimit(limit);
+  const params = new URLSearchParams();
+
+  params.set('per-page', String(normalizedLimit));
+  params.set(
+    'select',
+    'id,title,authorships,publication_year,doi,ids,primary_location,cited_by_count'
+  );
+
+  if (isDoiQuery(keyword)) {
+    params.set('filter', `doi:${normalizeDoi(keyword)}`);
+  } else {
+    params.set('search', String(keyword || '').trim());
+  }
+
+  return `https://api.openalex.org/works?${params.toString()}`;
+}
+
 function mapOpenAlexWork(work) {
   const doi = normalizeDoi(work.doi || (work.ids && work.ids.doi));
   const openAlexId = parseOpenAlexId(work.id);
@@ -191,6 +210,8 @@ function rankSearchResults(results, keyword) {
 
 async function fetchJson(url, options = {}) {
   const timeoutMs = Number(options.timeoutMs || DEFAULT_TIMEOUT_MS);
+  const provider = options.provider || 'unknown';
+  const headers = options.headers || {};
   const hasAbortController = typeof AbortController !== 'undefined';
   const controller = hasAbortController ? new AbortController() : null;
   const timer = hasAbortController ? setTimeout(() => controller.abort(), timeoutMs) : null;
@@ -198,45 +219,54 @@ async function fetchJson(url, options = {}) {
   try {
     const response = await fetch(url, {
       method: 'GET',
-      headers: options.headers || {},
+      headers,
       ...(controller ? { signal: controller.signal } : {})
     });
 
     if (!response.ok) {
+      const bodyText =
+        typeof response.text === 'function'
+          ? await response.text().catch(() => '')
+          : '';
+      console.error('[search.fetchJson] upstream error', {
+        provider,
+        status: response.status,
+        url,
+        bodyPreview: bodyText.slice(0, 500)
+      });
       throw new SearchServiceError(`上游搜索服务错误：${response.status}`, response.status);
     }
 
     return await response.json();
   } catch (error) {
     if (error.name === 'AbortError') {
-      throw new SearchServiceError('上游搜索超时，请稍后重试', 504);
+      console.error('[search.fetchJson] upstream timeout', { provider, url, timeoutMs });
+      throw new SearchServiceError('上游搜索服务超时', 504);
     }
 
     if (error instanceof SearchServiceError) {
       throw error;
     }
 
-    throw new SearchServiceError('上游搜索请求失败', 502);
+    console.error('[search.fetchJson] upstream request failed', {
+      provider,
+      url,
+      message: error.message
+    });
+    throw new SearchServiceError(`搜索服务请求失败：${error.message}`, 502);
   } finally {
-    clearTimeout(timer);
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 }
 
 async function searchOpenAlex(keyword, options = {}) {
   const limit = Number(options.limit || DEFAULT_LIMIT);
-  const params = new URLSearchParams();
-
-  params.set('per-page', String(limit));
-  params.set('select', 'id,title,authorships,publication_year,doi,ids,primary_location,cited_by_count');
-
-  if (isDoiQuery(keyword)) {
-    params.set('filter', `doi:${normalizeDoi(keyword)}`);
-  } else {
-    params.set('search', keyword);
-  }
-
-  const data = await fetchJson(`https://api.openalex.org/works?${params.toString()}`, {
-    timeoutMs: options.timeoutMs
+  const url = buildOpenAlexSearchUrl(keyword, limit);
+  const data = await fetchJson(url, {
+    timeoutMs: options.timeoutMs,
+    provider: 'openalex'
   });
 
   const works = Array.isArray(data.results) ? data.results : [];
@@ -264,7 +294,8 @@ async function searchSemantic(keyword, options = {}) {
     `https://api.semanticscholar.org/graph/v1/paper/search?${params.toString()}`,
     {
       timeoutMs: options.timeoutMs,
-      headers
+      headers,
+      provider: 'semantic'
     }
   );
 
@@ -284,6 +315,15 @@ async function runSearch(keyword, options = {}) {
 
   const limit = normalizeLimit(options.limit || process.env.SEARCH_RESULT_LIMIT);
   const provider = String(process.env.SEARCH_PROVIDER || 'openalex').toLowerCase();
+
+  if (process.env.NODE_ENV !== 'production') {
+    console.info('[search.runSearch]', {
+      keyword: query,
+      provider,
+      limit,
+      isDoi: isDoiQuery(query)
+    });
+  }
 
   let combined = [];
 
@@ -329,6 +369,8 @@ module.exports = {
   SearchServiceError,
   isDoiQuery,
   normalizeDoi,
+  buildOpenAlexSearchUrl,
+  fetchJson,
   mapOpenAlexWork,
   mapSemanticPaper,
   dedupeResults,
