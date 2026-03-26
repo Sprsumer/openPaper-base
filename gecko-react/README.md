@@ -32,17 +32,27 @@ The tool allows the user to view these highly connected papers either in a table
 7. Run `yarn run start` to launch the server.
 8. The application will be served to http://localhost:8000
 
-## Real search endpoint (/api/search)
+## Unified search endpoint (/api/search)
 
-`/api/search` now uses real providers instead of mock data.
+`/api/search` is the unified backend entry for paper search.
+
+### Search providers
 
 - Default provider: `OpenAlex` (`SEARCH_PROVIDER=openalex`)
 - Optional provider: `Semantic Scholar` (`SEARCH_PROVIDER=semantic`)
-- Hybrid mode: `SEARCH_PROVIDER=hybrid` (merge semantic + openalex with dedupe and ranking)
+- Hybrid mode: `SEARCH_PROVIDER=hybrid` (query both providers, then dedupe + rank)
+
+Provider behavior:
+
+- `openalex`: query OpenAlex only.
+- `semantic`: query Semantic Scholar first; if Semantic fails, fallback to OpenAlex.
+- `hybrid`: query Semantic Scholar and OpenAlex in parallel; merge successful results and dedupe.
+
+If `SEMANTIC_SCHOLAR_API_KEY` is not configured, `openalex` mode still works normally, and the project can start without Semantic key.
 
 ### Response format
 
-The endpoint keeps front-end compatible format:
+`/api/search` keeps front-end compatible format:
 
 ```json
 {
@@ -72,18 +82,26 @@ SEARCH_TIMEOUT_MS=10000
 SEMANTIC_SCHOLAR_API_KEY=
 ```
 
-Notes:
-
-- If no Semantic key is configured, `openalex` mode works directly.
-- In `semantic` mode, semantic failure will fallback to OpenAlex.
-- In `hybrid` mode, service tries both sources and dedupes by DOI / id / normalized title.
-
-### Local API test
+### Local testing
 
 After starting server (`yarn start`), test via:
 
 - Keyword search: `http://localhost:8000/api/search?keyword=graph%20neural%20network`
 - DOI search: `http://localhost:8000/api/search?keyword=10.1038/s41586-020-2649-2`
+
+Run automated tests:
+
+```bash
+yarn test --watch=false --runInBand src/__tests__/searchService.test.js src/__tests__/searchRoute.integration.test.js src/__tests__/searchApi.test.js
+```
+
+### Current capability boundaries
+
+- Current implementation is: real provider search + lightweight dedupe/ranking + multi-source compatibility.
+- It is not a full reproduction of Connected Papers graph algorithm.
+- Chinese query quality may vary due to upstream data source coverage and indexing.
+- Semantic Scholar may still be rate-limited or unstable in some regions.
+- `/api/openalex/search` and `/api/openalex/related` are auxiliary compatibility/debug routes; `/api/search` is the primary entry.
 
 ## Instructions for use
 
@@ -93,7 +111,8 @@ After starting server (`yarn start`), test via:
    2. Upload a bibTex file (NOTE: currently only entries with a DOI will be added)
       - There is an example BibTex in the repository (public/examples/exampleBibTex.bib) which you can try importing as a test case.
    3. Search for seed papers
-      - Sends the query to the CrossRef API, can use title / author / keywords etc.
+      - Main search endpoint is `/api/search`, backed by OpenAlex / Semantic Scholar (provider depends on `SEARCH_PROVIDER`).
+      - CrossRef-related modules in this repo are legacy/auxiliary import capabilities, not the primary `/api/search` provider.
       - Choose which papers to add as seeds by clicking the Add buttons at the end of each row.
    4. Import from Zotero
       - This will redirect you to Zotero in order to authenticate the app allow you to add papers in your zotero collections.

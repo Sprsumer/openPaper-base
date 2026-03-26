@@ -335,6 +335,7 @@ module.exports = {
   mapOpenAlexWork,
   mapSemanticPaper,
   dedupeResults,
+  scorePaper,
   rankSearchResults,
   searchOpenAlex,
   searchSemantic,

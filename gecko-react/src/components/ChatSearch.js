@@ -6,7 +6,7 @@ const ChatSearch = ({ onAddPaper }) => {
     {
       role: 'assistant',
       content:
-        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我帮你找论文并生成真实相似关系网～（已复刻 Connected Papers 原版搜索）'
+        '你好！我是 openPaper 助手（OpenClaw 驱动）。输入关键词、DOI、标题或作者，我可以基于真实学术数据源搜索论文，并生成关联关系网（OpenAlex / Semantic Scholar 轻量搜索方案）。'
     }
   ]);
   const [input, setInput] = useState('');
